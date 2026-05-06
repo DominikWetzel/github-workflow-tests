@@ -15,7 +15,6 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  administration: write
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -29,29 +28,26 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Check release-config.yml
+        env:
+          TARGET_BRANCH: ${{ github.ref_name }}
         run: |
-          TARGET="${{ github.ref_name }}"
-          echo "ℹ️  Release triggered for branch: $TARGET"
+          echo "ℹ️  Release triggered for branch: $TARGET_BRANCH"
 
-          CONFIGURED=$(python3 - << 'PYEOF'
-          import yaml, sys
-          with open(".github/release-config.yml") as f:
-              cfg = yaml.safe_load(f)
-          branches = cfg.get("release_branches", [])
-          target = "$TARGET"
-          if target in branches:
-              print("yes")
-          else:
-              print("no")
-          PYEOF
-          )
+          CONFIGURED=$(python3 -c "
+import yaml, os
+with open('.github/release-config.yml') as f:
+    cfg = yaml.safe_load(f)
+branches = cfg.get('release_branches', [])
+target = os.environ['TARGET_BRANCH']
+print('yes' if target in branches else 'no')
+")
 
           if [[ "$CONFIGURED" != "yes" ]]; then
-            echo "❌ Branch '$TARGET' is not configured as a release branch."
+            echo "❌ Branch '$TARGET_BRANCH' is not configured as a release branch."
             echo "   Add it to .github/release-config.yml to enable releases from this branch."
             exit 1
           fi
-          echo "✅ Branch '$TARGET' is a valid release branch."
+          echo "✅ Branch '$TARGET_BRANCH' is a valid release branch."
 
   # ---------------------------------------------------------------------------
   # Pre-Release Hook

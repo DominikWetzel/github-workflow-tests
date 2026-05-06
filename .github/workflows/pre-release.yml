@@ -17,7 +17,6 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  administration: write
 
 jobs:
   pre-release:
