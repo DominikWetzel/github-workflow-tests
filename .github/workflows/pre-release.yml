@@ -1,0 +1,148 @@
+name: Pre-Release Hook
+
+# Called by the release workflow before the actual release runs.
+# Steps:
+#   1. Lock the target branch (make it read-only via branch protection)
+#   2. Create a shadow branch from the target branch
+#   3. Redirect all open PRs targeting the target branch to the shadow branch
+
+on:
+  workflow_call:
+    inputs:
+      target_branch:
+        description: 'Branch being released (e.g. master, version/5.x.x)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  pre-release:
+    name: Pre-Release
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      OWNER: ${{ github.repository_owner }}
+      REPO: ${{ github.event.repository.name }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_branch }}
+          fetch-depth: 0
+
+      # -----------------------------------------------------------------------
+      # Compute shadow branch name
+      #   master          → shadow-master
+      #   version/<x.y.z> → version/<x.y.z>-shadow
+      # -----------------------------------------------------------------------
+      - name: Compute shadow branch name
+        id: shadow
+        run: |
+          TARGET="${{ inputs.target_branch }}"
+          if [[ "$TARGET" == "master" ]]; then
+            SHADOW="shadow-master"
+          else
+            SHADOW="${TARGET}-shadow"
+          fi
+          echo "shadow_branch=$SHADOW" >> "$GITHUB_OUTPUT"
+          echo "ℹ️  Target branch : $TARGET"
+          echo "ℹ️  Shadow branch : $SHADOW"
+
+      # -----------------------------------------------------------------------
+      # Lock the target branch
+      # Adds lock_branch=true to existing branch protection (if any), or creates
+      # a minimal lock-only protection if no rules were previously configured.
+      # This preserves any existing protection rules while adding the lock.
+      # -----------------------------------------------------------------------
+      - name: Lock target branch
+        run: |
+          TARGET="${{ inputs.target_branch }}"
+          # URL-encode slashes in the branch name for the REST API path
+          TARGET_ENC="${TARGET//\//%2F}"
+          echo "🔒 Locking branch: $TARGET"
+
+          # Fetch existing protection settings (empty if none configured)
+          EXISTING=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/$OWNER/$REPO/branches/$TARGET_ENC/protection" 2>/dev/null || echo "")
+
+          if [[ -n "$EXISTING" ]]; then
+            echo "ℹ️  Existing protection found – preserving settings and adding lock."
+            # Transform GET response format to PUT request format, adding lock_branch: true
+            PAYLOAD=$(echo "$EXISTING" | bash .github/scripts/transform-protection.sh --lock)
+          else
+            echo "ℹ️  No existing protection – applying minimal lock."
+            PAYLOAD='{"required_status_checks":null,"enforce_admins":false,"required_pull_request_reviews":null,"restrictions":null,"lock_branch":true}'
+          fi
+
+          echo "$PAYLOAD" | gh api \
+            --method PUT \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/$OWNER/$REPO/branches/$TARGET_ENC/protection" \
+            --input -
+
+          echo "✅ Branch '$TARGET' is now locked."
+
+      # -----------------------------------------------------------------------
+      # Create the shadow branch from the current tip of the target branch
+      # -----------------------------------------------------------------------
+      - name: Create shadow branch
+        run: |
+          TARGET="${{ inputs.target_branch }}"
+          TARGET_ENC="${TARGET//\//%2F}"
+          SHADOW="${{ steps.shadow.outputs.shadow_branch }}"
+          echo "🌿 Creating shadow branch: $SHADOW"
+
+          # Fetch the current SHA of the target branch
+          SHA=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/$OWNER/$REPO/git/ref/heads/$TARGET_ENC" \
+            --jq '.object.sha')
+
+          # Check if shadow branch already exists (idempotent run)
+          if gh api \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/$OWNER/$REPO/git/ref/heads/${SHADOW//\//%2F}" \
+              > /dev/null 2>&1; then
+            echo "⚠️  Shadow branch '$SHADOW' already exists – skipping creation."
+          else
+            gh api \
+              --method POST \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/$OWNER/$REPO/git/refs" \
+              -f "ref=refs/heads/$SHADOW" \
+              -f "sha=$SHA"
+            echo "✅ Shadow branch '$SHADOW' created at $SHA"
+          fi
+
+      # -----------------------------------------------------------------------
+      # Redirect open PRs: target branch → shadow branch
+      # -----------------------------------------------------------------------
+      - name: Redirect open PRs to shadow branch
+        run: |
+          TARGET="${{ inputs.target_branch }}"
+          SHADOW="${{ steps.shadow.outputs.shadow_branch }}"
+          echo "🔄 Redirecting open PRs from '$TARGET' → '$SHADOW'"
+
+          PRS=$(gh pr list \
+            --repo "$OWNER/$REPO" \
+            --base "$TARGET" \
+            --state open \
+            --json number \
+            --jq '.[].number')
+
+          if [ -z "$PRS" ]; then
+            echo "ℹ️  No open PRs targeting '$TARGET'."
+          else
+            for PR_NUM in $PRS; do
+              echo "  ↳ Redirecting PR #$PR_NUM → base '$SHADOW'"
+              gh pr edit "$PR_NUM" \
+                --repo "$OWNER/$REPO" \
+                --base "$SHADOW"
+            done
+            echo "✅ All open PRs redirected to '$SHADOW'."
+          fi

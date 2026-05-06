@@ -1,0 +1,144 @@
+name: Repository Setup (Run Once)
+
+# One-time workflow to set up the required branches and pull requests for the
+# release workflow demonstration. Run this manually from the Actions tab after
+# triggering it from this branch (copilot/domi-123-foo-changes).
+#
+# What it does:
+#   1. Updates the `master` branch with release workflow files (if not already done)
+#   2. Creates the `version/5.x.x` branch from master (with release workflows)
+#   3. Creates the `DOMI-345` feature branch from version/5.x.x with bar.txt
+#   4. Updates PR #1 to target master instead of main
+#   5. Opens a new PR: DOMI-345 → version/5.x.x
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  setup:
+    name: Set up branches and PRs
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      OWNER: ${{ github.repository_owner }}
+      REPO: ${{ github.event.repository.name }}
+
+    steps:
+      - name: Checkout DOMI-123 branch (has all workflow files)
+        uses: actions/checkout@v4
+        with:
+          ref: copilot/domi-123-foo-changes
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch --all
+
+      # -----------------------------------------------------------------------
+      # Update master branch with release workflow files.
+      # If master already has the .github/workflows directory, skip.
+      # -----------------------------------------------------------------------
+      - name: Update master branch with workflow files
+        run: |
+          git fetch origin master:master 2>/dev/null || true
+
+          if git show master:.github/workflows/release.yml > /dev/null 2>&1; then
+            echo "ℹ️  master branch already has release workflows – skipping update."
+          else
+            echo "🌿 Updating master branch with release workflows …"
+            git checkout master
+            # Cherry-pick only the workflow and config files from DOMI-123 branch
+            git checkout copilot/domi-123-foo-changes -- .github/
+            git commit -m "chore: add release workflows to master branch"
+            git push origin master
+            echo "✅ master branch updated with release workflows."
+          fi
+          git checkout copilot/domi-123-foo-changes
+
+      # -----------------------------------------------------------------------
+      # Create version/5.x.x branch from master (idempotent)
+      # -----------------------------------------------------------------------
+      - name: Create version/5.x.x branch
+        run: |
+          if git ls-remote --exit-code origin "version/5.x.x" > /dev/null 2>&1; then
+            echo "ℹ️  version/5.x.x branch already exists – skipping."
+          else
+            echo "🌿 Creating version/5.x.x branch from master …"
+            git fetch origin master:master
+            git checkout -b "version/5.x.x" master
+            git push origin "version/5.x.x"
+            echo "✅ version/5.x.x branch created."
+          fi
+          git checkout copilot/domi-123-foo-changes
+
+      # -----------------------------------------------------------------------
+      # Create DOMI-345 feature branch from version/5.x.x (idempotent)
+      # -----------------------------------------------------------------------
+      - name: Create DOMI-345 feature branch
+        run: |
+          if git ls-remote --exit-code origin "DOMI-345" > /dev/null 2>&1; then
+            echo "ℹ️  DOMI-345 branch already exists – skipping."
+          else
+            echo "🌿 Creating DOMI-345 branch from version/5.x.x …"
+            git fetch origin "version/5.x.x:version/5.x.x"
+            git checkout -b "DOMI-345" "version/5.x.x"
+            echo "bar changes from feature branch DOMI-345" > bar.txt
+            git add bar.txt
+            git commit -m "feat: add bar.txt from feature branch DOMI-345"
+            git push origin "DOMI-345"
+            echo "✅ DOMI-345 branch created."
+          fi
+          git checkout copilot/domi-123-foo-changes
+
+      # -----------------------------------------------------------------------
+      # Update existing PR #1 (DOMI-123 → main) to target master instead
+      # -----------------------------------------------------------------------
+      - name: Retarget PR #1 to master
+        run: |
+          CURRENT_BASE=$(gh pr view 1 --repo "$OWNER/$REPO" --json baseRefName --jq '.baseRefName' 2>/dev/null || echo "unknown")
+          if [[ "$CURRENT_BASE" == "master" ]]; then
+            echo "ℹ️  PR #1 already targets master – skipping."
+          else
+            echo "🔄 Updating PR #1 base from '$CURRENT_BASE' to master …"
+            gh pr edit 1 \
+              --repo "$OWNER/$REPO" \
+              --base master \
+              --title "Add foo changes in feature branch DOMI-123" \
+              --body "Foo changes from feature branch DOMI-123, targeting the master branch." \
+              2>&1 && echo "✅ PR #1 updated." \
+              || echo "⚠️  Could not update PR #1."
+          fi
+
+      # -----------------------------------------------------------------------
+      # Open PR: DOMI-345 → version/5.x.x (idempotent)
+      # -----------------------------------------------------------------------
+      - name: Create PR for DOMI-345 → version/5.x.x
+        run: |
+          EXISTING=$(gh pr list \
+            --repo "$OWNER/$REPO" \
+            --head "DOMI-345" \
+            --base "version/5.x.x" \
+            --json number \
+            --jq '.[].number' 2>/dev/null)
+
+          if [[ -n "$EXISTING" ]]; then
+            echo "ℹ️  PR DOMI-345 → version/5.x.x already exists (#$EXISTING) – skipping."
+          else
+            echo "📬 Creating PR DOMI-345 → version/5.x.x …"
+            gh pr create \
+              --repo "$OWNER/$REPO" \
+              --title "Add bar changes in feature branch DOMI-345" \
+              --body "Bar changes from feature branch DOMI-345, targeting the version/5.x.x branch." \
+              --base "version/5.x.x" \
+              --head "DOMI-345" \
+              2>&1 && echo "✅ PR created." \
+              || echo "⚠️  Could not create PR."
+          fi
+
+          echo "✅ Setup complete."

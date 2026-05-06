@@ -1,0 +1,84 @@
+name: Release
+
+# Trigger this workflow manually from the Actions tab.
+# Select the branch you want to release from (e.g. master, version/5.x.x).
+# The branch MUST be listed in .github/release-config.yml.
+#
+# Flow:
+#   1. pre-release  – lock branch, create shadow, redirect open PRs
+#   2. release      – the actual release (placeholder: sleeps 60 minutes)
+#   3. post-release – unlock branch, redirect PRs back, merge & delete shadow
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_duration_seconds:
+        description: 'Duration of the release step in seconds (default: 3600 = 60 minutes). Use a shorter value for testing.'
+        required: false
+        default: '3600'
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Validate that the workflow was triggered from a configured release branch
+  # ---------------------------------------------------------------------------
+  validate:
+    name: Validate Release Branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check release-config.yml
+        env:
+          TARGET_BRANCH: ${{ github.ref_name }}
+        run: |
+          echo "ℹ️  Release triggered for branch: $TARGET_BRANCH"
+          if ! python3 -c "import yaml,os,sys; cfg=yaml.safe_load(open('.github/release-config.yml')); sys.exit(0 if os.environ['TARGET_BRANCH'] in cfg.get('release_branches',[]) else 1)"; then
+            echo "❌ Branch '$TARGET_BRANCH' is not configured as a release branch."
+            echo "   Add it to .github/release-config.yml to enable releases from this branch."
+            exit 1
+          fi
+          echo "✅ Branch '$TARGET_BRANCH' is a valid release branch."
+
+  # ---------------------------------------------------------------------------
+  # Pre-Release Hook
+  # ---------------------------------------------------------------------------
+  pre-release:
+    name: Pre-Release
+    needs: validate
+    uses: ./.github/workflows/pre-release.yml
+    with:
+      target_branch: ${{ github.ref_name }}
+    secrets: inherit
+
+  # ---------------------------------------------------------------------------
+  # Release (placeholder – replace with real release steps)
+  # ---------------------------------------------------------------------------
+  release:
+    name: Release
+    needs: pre-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Perform release
+        run: |
+          echo "🚀 Release started for branch: ${{ github.ref_name }}"
+          DURATION="${{ inputs.release_duration_seconds }}"
+          echo "   Sleeping for ${DURATION}s (simulating the release process)..."
+          sleep "$DURATION"
+          echo "✅ Release complete."
+
+  # ---------------------------------------------------------------------------
+  # Post-Release Hook
+  # ---------------------------------------------------------------------------
+  post-release:
+    name: Post-Release
+    needs: release
+    uses: ./.github/workflows/post-release.yml
+    with:
+      target_branch: ${{ github.ref_name }}
+    secrets: inherit

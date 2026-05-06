@@ -1,0 +1,156 @@
+name: Post-Release Hook
+
+# Called by the release workflow after the actual release completes.
+# Steps:
+#   1. Unlock the target branch (remove the branch protection set in pre-release)
+#   2. Redirect all open PRs from the shadow branch back to the target branch
+#   3. Merge the shadow branch into the target branch
+#   4. Delete the shadow branch
+
+on:
+  workflow_call:
+    inputs:
+      target_branch:
+        description: 'Branch that was released (e.g. master, version/5.x.x)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  post-release:
+    name: Post-Release
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      OWNER: ${{ github.repository_owner }}
+      REPO: ${{ github.event.repository.name }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # Compute shadow branch name (same logic as pre-release)
+      # -----------------------------------------------------------------------
+      - name: Compute shadow branch name
+        id: shadow
+        run: |
+          TARGET="${{ inputs.target_branch }}"
+          if [[ "$TARGET" == "master" ]]; then
+            SHADOW="shadow-master"
+          else
+            SHADOW="${TARGET}-shadow"
+          fi
+          echo "shadow_branch=$SHADOW" >> "$GITHUB_OUTPUT"
+          echo "ℹ️  Target branch : $TARGET"
+          echo "ℹ️  Shadow branch : $SHADOW"
+
+      # -----------------------------------------------------------------------
+      # Unlock the target branch
+      # Sets lock_branch=false while preserving any other existing protection
+      # rules. If the only protection was the lock itself, removes it entirely.
+      # This must happen BEFORE the merge so the merge commit can land.
+      # -----------------------------------------------------------------------
+      - name: Unlock target branch
+        run: |
+          TARGET="${{ inputs.target_branch }}"
+          TARGET_ENC="${TARGET//\//%2F}"
+          echo "🔓 Unlocking branch: $TARGET"
+
+          EXISTING=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/$OWNER/$REPO/branches/$TARGET_ENC/protection" 2>/dev/null || echo "")
+
+          if [[ -z "$EXISTING" ]]; then
+            echo "ℹ️  No branch protection on '$TARGET' – nothing to remove."
+          else
+            # Build PUT payload with lock_branch: false, preserving other settings
+            PAYLOAD=$(echo "$EXISTING" | bash .github/scripts/transform-protection.sh --unlock)
+
+            # Check if any meaningful settings remain besides the lock
+            HAS_SETTINGS=$(echo "$PAYLOAD" | jq '(.required_status_checks != null) or (.enforce_admins != false) or (.required_pull_request_reviews != null) or (.restrictions != null)')
+
+            if [[ "$HAS_SETTINGS" == "true" ]]; then
+              echo "$PAYLOAD" | gh api \
+                --method PUT \
+                -H "Accept: application/vnd.github+json" \
+                "/repos/$OWNER/$REPO/branches/$TARGET_ENC/protection" \
+                --input -
+              echo "✅ Branch '$TARGET' unlocked (other protection settings preserved)."
+            else
+              gh api --method DELETE \
+                -H "Accept: application/vnd.github+json" \
+                "/repos/$OWNER/$REPO/branches/$TARGET_ENC/protection" \
+                2>/dev/null && echo "✅ Branch '$TARGET' is now unlocked." \
+                || echo "ℹ️  No protection to remove."
+            fi
+          fi
+
+      # -----------------------------------------------------------------------
+      # Redirect open PRs: shadow branch → target branch
+      # -----------------------------------------------------------------------
+      - name: Redirect open PRs from shadow to target
+        run: |
+          TARGET="${{ inputs.target_branch }}"
+          SHADOW="${{ steps.shadow.outputs.shadow_branch }}"
+          echo "🔄 Redirecting open PRs from '$SHADOW' → '$TARGET'"
+
+          PRS=$(gh pr list \
+            --repo "$OWNER/$REPO" \
+            --base "$SHADOW" \
+            --state open \
+            --json number \
+            --jq '.[].number')
+
+          if [ -z "$PRS" ]; then
+            echo "ℹ️  No open PRs targeting '$SHADOW'."
+          else
+            for PR_NUM in $PRS; do
+              echo "  ↳ Redirecting PR #$PR_NUM → base '$TARGET'"
+              gh pr edit "$PR_NUM" \
+                --repo "$OWNER/$REPO" \
+                --base "$TARGET"
+            done
+            echo "✅ All open PRs redirected to '$TARGET'."
+          fi
+
+      # -----------------------------------------------------------------------
+      # Merge shadow branch into target branch
+      # GitHub API returns 201 (merge created) or 204 (already up to date).
+      # -----------------------------------------------------------------------
+      - name: Merge shadow branch into target
+        run: |
+          TARGET="${{ inputs.target_branch }}"
+          SHADOW="${{ steps.shadow.outputs.shadow_branch }}"
+          echo "🔀 Merging '$SHADOW' into '$TARGET'"
+
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/$OWNER/$REPO/merges" \
+            -f "base=$TARGET" \
+            -f "head=$SHADOW" \
+            -f "commit_message=chore: merge $SHADOW into $TARGET after release" \
+            && echo "✅ Shadow branch '$SHADOW' merged into '$TARGET' (or already up to date)." \
+            || echo "⚠️  Merge failed – manual intervention may be required."
+
+      # -----------------------------------------------------------------------
+      # Delete shadow branch
+      # -----------------------------------------------------------------------
+      - name: Delete shadow branch
+        run: |
+          SHADOW="${{ steps.shadow.outputs.shadow_branch }}"
+          SHADOW_ENC="${SHADOW//\//%2F}"
+          echo "🗑️  Deleting shadow branch: $SHADOW"
+
+          if gh api \
+              --method DELETE \
+              "/repos/$OWNER/$REPO/git/refs/heads/$SHADOW_ENC" \
+              2>/dev/null; then
+            echo "✅ Shadow branch '$SHADOW' deleted."
+          else
+            echo "⚠️  Could not delete '$SHADOW' (it may not exist)."
+          fi

@@ -1,0 +1,16 @@
+# Release branch configuration
+#
+# Branches listed here support the release workflow with shadow branching.
+# When a release is triggered from one of these branches, a shadow branch is
+# automatically created, open PRs are redirected to it while the release runs,
+# and it is merged back and deleted in the post-release hook.
+#
+# Shadow branch naming convention:
+#   master          → shadow-master
+#   version/<x.y.z> → version/<x.y.z>-shadow   (e.g. version/5.x.x-shadow)
+#
+# To mark a new branch as a release branch, add it to the list below.
+
+release_branches:
+  - master
+  - version/5.x.x
