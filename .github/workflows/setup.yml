@@ -1,0 +1,103 @@
+name: Repository Setup (Run Once)
+
+# One-time workflow to set up the required branches and pull requests for the
+# release workflow demonstration. Run this manually from the Actions tab after
+# triggering it from this branch (copilot/domi-123-foo-changes).
+#
+# What it does:
+#   1. Creates the `master` branch (without the DOMI-123 feature file foo.txt)
+#   2. Creates the `version/5.x.x` branch from master
+#   3. Creates the `DOMI-345` feature branch from version/5.x.x with bar.txt
+#   4. Updates PR #1 to target master instead of main
+#   5. Opens a new PR: DOMI-345 → version/5.x.x
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  setup:
+    name: Set up branches and PRs
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      OWNER: ${{ github.repository_owner }}
+      REPO: ${{ github.event.repository.name }}
+
+    steps:
+      - name: Checkout DOMI-123 branch (has all workflow files)
+        uses: actions/checkout@v4
+        with:
+          ref: copilot/domi-123-foo-changes
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      # -----------------------------------------------------------------------
+      # Create master branch
+      # Same content as DOMI-123 branch but without foo.txt (that belongs only
+      # to the feature branch).
+      # -----------------------------------------------------------------------
+      - name: Create master branch
+        run: |
+          git checkout -b master
+          git rm --cached foo.txt 2>/dev/null || true
+          rm -f foo.txt
+          git commit -m "chore: set up master branch with release workflows"
+          git push origin master
+          echo "✅ master branch created"
+
+      # -----------------------------------------------------------------------
+      # Create version/5.x.x branch from master
+      # -----------------------------------------------------------------------
+      - name: Create version/5.x.x branch
+        run: |
+          git checkout -b "version/5.x.x" master
+          git push origin "version/5.x.x"
+          echo "✅ version/5.x.x branch created"
+
+      # -----------------------------------------------------------------------
+      # Create DOMI-345 feature branch from version/5.x.x
+      # -----------------------------------------------------------------------
+      - name: Create DOMI-345 feature branch
+        run: |
+          git checkout -b "DOMI-345" "version/5.x.x"
+          echo "bar changes from feature branch DOMI-345" > bar.txt
+          git add bar.txt
+          git commit -m "feat: add bar.txt from feature branch DOMI-345"
+          git push origin "DOMI-345"
+          echo "✅ DOMI-345 branch created"
+
+      # -----------------------------------------------------------------------
+      # Update existing PR #1 (DOMI-123 → main) to target master instead
+      # -----------------------------------------------------------------------
+      - name: Retarget PR #1 to master
+        run: |
+          echo "🔄 Updating PR #1 base to master …"
+          gh pr edit 1 \
+            --repo "$OWNER/$REPO" \
+            --base master \
+            --title "Add foo changes in feature branch DOMI-123" \
+            --body "Foo changes from feature branch DOMI-123, targeting the master branch." \
+            2>&1 || echo "⚠️  Could not update PR #1 (it may already target master or require different permissions)"
+
+      # -----------------------------------------------------------------------
+      # Open PR: DOMI-345 → version/5.x.x
+      # -----------------------------------------------------------------------
+      - name: Create PR for DOMI-345 → version/5.x.x
+        run: |
+          echo "📬 Creating PR DOMI-345 → version/5.x.x …"
+          gh pr create \
+            --repo "$OWNER/$REPO" \
+            --title "Add bar changes in feature branch DOMI-345" \
+            --body "Bar changes from feature branch DOMI-345, targeting the version/5.x.x branch." \
+            --base "version/5.x.x" \
+            --head "DOMI-345" \
+            2>&1 || echo "⚠️  Could not create PR (it may already exist)"
+          echo "✅ Setup complete."
