@@ -44,22 +44,22 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       # -----------------------------------------------------------------------
-      # Create master branch (idempotent)
+      # Update master branch with release workflow files (idempotent)
       # -----------------------------------------------------------------------
-      - name: Create master branch if missing
+      - name: Update master branch with workflow files if missing
         run: |
-          if git ls-remote --exit-code origin master > /dev/null 2>&1; then
-            echo "ℹ️  master branch already exists – skipping."
+          git fetch origin master:master 2>/dev/null || true
+
+          if git show master:.github/workflows/release.yml > /dev/null 2>&1; then
+            echo "ℹ️  master branch already has release workflows – skipping."
           else
-            echo "🌿 Creating master branch …"
-            git checkout -b master
-            git rm --cached foo.txt 2>/dev/null || true
-            rm -f foo.txt
-            git commit -m "chore: set up master branch with release workflows"
+            echo "🌿 Updating master branch with release workflows …"
+            git checkout master
+            git checkout copilot/domi-123-foo-changes -- .github/
+            git commit -m "chore: add release workflows to master branch"
             git push origin master
-            echo "✅ master branch created."
+            echo "✅ master branch updated with release workflows."
           fi
-          # Switch back to the DOMI-123 branch for subsequent steps
           git checkout copilot/domi-123-foo-changes
 
       # -----------------------------------------------------------------------
