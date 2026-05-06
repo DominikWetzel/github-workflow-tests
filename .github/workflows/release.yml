@@ -32,17 +32,7 @@ jobs:
           TARGET_BRANCH: ${{ github.ref_name }}
         run: |
           echo "ℹ️  Release triggered for branch: $TARGET_BRANCH"
-
-          CONFIGURED=$(python3 -c "
-import yaml, os
-with open('.github/release-config.yml') as f:
-    cfg = yaml.safe_load(f)
-branches = cfg.get('release_branches', [])
-target = os.environ['TARGET_BRANCH']
-print('yes' if target in branches else 'no')
-")
-
-          if [[ "$CONFIGURED" != "yes" ]]; then
+          if ! python3 -c "import yaml,os,sys; cfg=yaml.safe_load(open('.github/release-config.yml')); sys.exit(0 if os.environ['TARGET_BRANCH'] in cfg.get('release_branches',[]) else 1)"; then
             echo "❌ Branch '$TARGET_BRANCH' is not configured as a release branch."
             echo "   Add it to .github/release-config.yml to enable releases from this branch."
             exit 1
