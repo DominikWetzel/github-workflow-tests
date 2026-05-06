@@ -1,0 +1,140 @@
+name: Post-Release Hook
+
+# Called by the release workflow after the actual release completes.
+# Steps:
+#   1. Unlock the target branch (remove the branch protection set in pre-release)
+#   2. Redirect all open PRs from the shadow branch back to the target branch
+#   3. Merge the shadow branch into the target branch
+#   4. Delete the shadow branch
+
+on:
+  workflow_call:
+    inputs:
+      target_branch:
+        description: 'Branch that was released (e.g. master, version/5.x.x)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  administration: write
+
+jobs:
+  post-release:
+    name: Post-Release
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      OWNER: ${{ github.repository_owner }}
+      REPO: ${{ github.event.repository.name }}
+
+    steps:
+      # -----------------------------------------------------------------------
+      # Compute shadow branch name (same logic as pre-release)
+      # -----------------------------------------------------------------------
+      - name: Compute shadow branch name
+        id: shadow
+        run: |
+          TARGET="${{ inputs.target_branch }}"
+          if [[ "$TARGET" == "master" ]]; then
+            SHADOW="shadow-master"
+          else
+            SHADOW="${TARGET}-shadow"
+          fi
+          echo "shadow_branch=$SHADOW" >> "$GITHUB_OUTPUT"
+          echo "ℹ️  Target branch : $TARGET"
+          echo "ℹ️  Shadow branch : $SHADOW"
+
+      # -----------------------------------------------------------------------
+      # Unlock the target branch
+      # Removes the branch protection that was applied in the pre-release hook.
+      # This must happen BEFORE the merge so the merge commit can land.
+      # -----------------------------------------------------------------------
+      - name: Unlock target branch
+        run: |
+          TARGET="${{ inputs.target_branch }}"
+          TARGET_ENC="${TARGET//\//%2F}"
+          echo "🔓 Unlocking branch: $TARGET"
+
+          if gh api \
+              --method DELETE \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/$OWNER/$REPO/branches/$TARGET_ENC/protection" \
+              2>/dev/null; then
+            echo "✅ Branch protection removed – '$TARGET' is now unlocked."
+          else
+            echo "ℹ️  No branch protection was set on '$TARGET' (nothing to remove)."
+          fi
+
+      # -----------------------------------------------------------------------
+      # Redirect open PRs: shadow branch → target branch
+      # -----------------------------------------------------------------------
+      - name: Redirect open PRs from shadow to target
+        run: |
+          TARGET="${{ inputs.target_branch }}"
+          SHADOW="${{ steps.shadow.outputs.shadow_branch }}"
+          echo "🔄 Redirecting open PRs from '$SHADOW' → '$TARGET'"
+
+          PRS=$(gh pr list \
+            --repo "$OWNER/$REPO" \
+            --base "$SHADOW" \
+            --state open \
+            --json number \
+            --jq '.[].number')
+
+          if [ -z "$PRS" ]; then
+            echo "ℹ️  No open PRs targeting '$SHADOW'."
+          else
+            for PR_NUM in $PRS; do
+              echo "  ↳ Redirecting PR #$PR_NUM → base '$TARGET'"
+              gh pr edit "$PR_NUM" \
+                --repo "$OWNER/$REPO" \
+                --base "$TARGET"
+            done
+            echo "✅ All open PRs redirected to '$TARGET'."
+          fi
+
+      # -----------------------------------------------------------------------
+      # Merge shadow branch into target branch
+      # -----------------------------------------------------------------------
+      - name: Merge shadow branch into target
+        run: |
+          TARGET="${{ inputs.target_branch }}"
+          SHADOW="${{ steps.shadow.outputs.shadow_branch }}"
+          echo "🔀 Merging '$SHADOW' into '$TARGET'"
+
+          MERGE_RESULT=$(gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/$OWNER/$REPO/merges" \
+            -f "base=$TARGET" \
+            -f "head=$SHADOW" \
+            -f "commit_message=chore: merge $SHADOW into $TARGET after release [skip ci]" \
+            2>&1) || true
+
+          if echo "$MERGE_RESULT" | grep -q '"sha"'; then
+            echo "✅ Shadow branch '$SHADOW' merged into '$TARGET'."
+          elif echo "$MERGE_RESULT" | grep -q '204\|No Content\|already merged'; then
+            echo "ℹ️  Shadow branch '$SHADOW' was already up to date with '$TARGET'."
+          else
+            echo "⚠️  Merge result: $MERGE_RESULT"
+          fi
+
+      # -----------------------------------------------------------------------
+      # Delete shadow branch
+      # -----------------------------------------------------------------------
+      - name: Delete shadow branch
+        run: |
+          SHADOW="${{ steps.shadow.outputs.shadow_branch }}"
+          SHADOW_ENC="${SHADOW//\//%2F}"
+          echo "🗑️  Deleting shadow branch: $SHADOW"
+
+          if gh api \
+              --method DELETE \
+              "/repos/$OWNER/$REPO/git/refs/heads/$SHADOW_ENC" \
+              2>/dev/null; then
+            echo "✅ Shadow branch '$SHADOW' deleted."
+          else
+            echo "⚠️  Could not delete '$SHADOW' (it may not exist)."
+          fi
