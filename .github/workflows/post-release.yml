@@ -29,6 +29,9 @@ jobs:
       REPO: ${{ github.event.repository.name }}
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       # -----------------------------------------------------------------------
       # Compute shadow branch name (same logic as pre-release)
       # -----------------------------------------------------------------------
@@ -65,13 +68,7 @@ jobs:
             echo "ℹ️  No branch protection on '$TARGET' – nothing to remove."
           else
             # Build PUT payload with lock_branch: false, preserving other settings
-            PAYLOAD=$(echo "$EXISTING" | jq '{
-              required_status_checks: (if .required_status_checks then {strict:.required_status_checks.strict,contexts:(.required_status_checks.contexts//[]),checks:(.required_status_checks.checks//[])} else null end),
-              enforce_admins: (.enforce_admins.enabled // false),
-              required_pull_request_reviews: (if .required_pull_request_reviews then {dismiss_stale_reviews:(.required_pull_request_reviews.dismiss_stale_reviews//false),require_code_owner_reviews:(.required_pull_request_reviews.require_code_owner_reviews//false),required_approving_review_count:(.required_pull_request_reviews.required_approving_review_count//0)} else null end),
-              restrictions: (if .restrictions then {users:[.restrictions.users[].login],teams:[.restrictions.teams[].slug],apps:[.restrictions.apps[].slug]} else null end),
-              lock_branch: false
-            }')
+            PAYLOAD=$(echo "$EXISTING" | bash .github/scripts/transform-protection.sh --unlock)
 
             # Check if any meaningful settings remain besides the lock
             HAS_SETTINGS=$(echo "$PAYLOAD" | jq '(.required_status_checks != null) or (.enforce_admins != false) or (.required_pull_request_reviews != null) or (.restrictions != null)')

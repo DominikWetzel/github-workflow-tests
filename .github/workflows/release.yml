@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       release_duration_seconds:
-        description: 'Duration of the release step in seconds (default: 3600 = 60 min). Use a shorter value for testing.'
+        description: 'Duration of the release step in seconds (default: 3600 = 60 minutes). Use a shorter value for testing.'
         required: false
         default: '3600'
         type: string
