@@ -1,0 +1,121 @@
+name: Post-Release
+
+on:
+  workflow_call:
+    inputs:
+      base-branch:
+        required: true
+        type: string
+
+jobs:
+  post-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      statuses: write
+      pull-requests: write
+    steps:
+      - name: Get post-release base branch HEAD SHA
+        id: base-sha
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const ref = await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `heads/${{ inputs.base-branch }}`
+            });
+            core.setOutput('sha', ref.data.object.sha);
+            console.log(`Post-release base HEAD: ${ref.data.object.sha}`);
+
+      - name: Get shadow branch HEAD SHA
+        id: shadow-sha
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const ref = await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `heads/${{ inputs.base-branch }}-shadow`
+            });
+            core.setOutput('sha', ref.data.object.sha);
+            console.log(`Shadow HEAD: ${ref.data.object.sha}`);
+
+      - name: Redirect open PRs from shadow back to base
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const pulls = await github.paginate(github.rest.pulls.list, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              base: '${{ inputs.base-branch }}-shadow',
+              state: 'open'
+            });
+            console.log(`Found ${pulls.length} open PR(s) targeting shadow branch`);
+            for (const pr of pulls) {
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                base: '${{ inputs.base-branch }}'
+              });
+              console.log(`Redirected PR #${pr.number} "${pr.title}" back to ${{ inputs.base-branch }}`);
+            }
+
+      - name: Post success status on post-release base HEAD
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: '${{ steps.base-sha.outputs.sha }}',
+              state: 'success',
+              context: 'release/lock',
+              description: 'Release complete — merges unblocked'
+            });
+            console.log('Posted success status for release/lock');
+
+      - name: Fast-forward base branch to shadow HEAD
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            try {
+              await github.rest.git.updateRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `heads/${{ inputs.base-branch }}`,
+                sha: '${{ steps.shadow-sha.outputs.sha }}',
+                force: false
+              });
+              console.log('Fast-forward of ${{ inputs.base-branch }} to shadow HEAD succeeded');
+            } catch (err) {
+              core.setFailed(
+                `Fast-forward of ${{ inputs.base-branch }} to shadow HEAD failed: ${err.message}\n\n` +
+                'MANUAL RECOVERY REQUIRED:\n' +
+                '  1. Verify the shadow branch history is correct:\n' +
+                '       git log origin/${{ inputs.base-branch }}-shadow\n' +
+                '  2. If safe to proceed, force-push manually:\n' +
+                '       git push origin refs/heads/${{ inputs.base-branch }}-shadow:refs/heads/${{ inputs.base-branch }}\n' +
+                '  3. Delete the shadow branch:\n' +
+                '       git push origin --delete ${{ inputs.base-branch }}-shadow'
+              );
+            }
+
+      - name: Delete shadow branch
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.git.deleteRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `heads/${{ inputs.base-branch }}-shadow`
+            });
+            console.log('Shadow branch deleted');

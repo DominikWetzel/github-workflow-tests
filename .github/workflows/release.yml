@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+env:
+  docker_run: './scripts/ci/bin/docker-run.sh'
+  SSH_KEY: ${{ secrets.SSH_KEY }}
+
+jobs:
+  pre-release:
+    if: github.ref_name == 'master' || startsWith(github.ref_name, 'version/')
+    uses: ./.github/workflows/pre-release.yml
+    with:
+      base-branch: ${{ github.ref_name }}
+    secrets: inherit
+
+  build:
+    needs: pre-release
+    uses: ./.github/workflows/build.yml
+    with:
+      cypress-test-all-browsers: true
+    secrets: inherit
+
+  release:
+    needs: build
+    runs-on: docker
+    env:
+      SSH_DEPLOY_KEY: ${{ secrets.SSH_DEPLOY_KEY }}
+    steps:
+      - uses: dedalus-cis4u/with-standard-setup@v2.0.15
+        with:
+          git-checkout: 'all'
+      - name: create-image
+        run: scripts/ci/bin/run-step.sh create-image.sh
+      - name: run
+        run: |
+          $docker_run release.sh
+
+  post-release:
+    needs: release
+    if: always()
+    uses: ./.github/workflows/post-release.yml
+    with:
+      base-branch: ${{ github.ref_name }}
+    secrets: inherit
