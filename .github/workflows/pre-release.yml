@@ -54,8 +54,9 @@ jobs:
 
       # -----------------------------------------------------------------------
       # Lock the target branch
-      # Sets lock_branch=true in the branch protection rules so that no direct
-      # pushes can land on the branch while the release is in progress.
+      # Adds lock_branch=true to existing branch protection (if any), or creates
+      # a minimal lock-only protection if no rules were previously configured.
+      # This preserves any existing protection rules while adding the lock.
       # -----------------------------------------------------------------------
       - name: Lock target branch
         run: |
@@ -64,19 +65,31 @@ jobs:
           TARGET_ENC="${TARGET//\//%2F}"
           echo "🔒 Locking branch: $TARGET"
 
-          gh api \
+          # Fetch existing protection settings (empty if none configured)
+          EXISTING=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/$OWNER/$REPO/branches/$TARGET_ENC/protection" 2>/dev/null || echo "")
+
+          if [[ -n "$EXISTING" ]]; then
+            echo "ℹ️  Existing protection found – preserving settings and adding lock."
+            # Transform GET response format to PUT request format, adding lock_branch: true
+            PAYLOAD=$(echo "$EXISTING" | jq '{
+              required_status_checks: (if .required_status_checks then {strict:.required_status_checks.strict,contexts:(.required_status_checks.contexts//[]),checks:(.required_status_checks.checks//[])} else null end),
+              enforce_admins: (.enforce_admins.enabled // false),
+              required_pull_request_reviews: (if .required_pull_request_reviews then {dismiss_stale_reviews:(.required_pull_request_reviews.dismiss_stale_reviews//false),require_code_owner_reviews:(.required_pull_request_reviews.require_code_owner_reviews//false),required_approving_review_count:(.required_pull_request_reviews.required_approving_review_count//0)} else null end),
+              restrictions: (if .restrictions then {users:[.restrictions.users[].login],teams:[.restrictions.teams[].slug],apps:[.restrictions.apps[].slug]} else null end),
+              lock_branch: true
+            }')
+          else
+            echo "ℹ️  No existing protection – applying minimal lock."
+            PAYLOAD='{"required_status_checks":null,"enforce_admins":false,"required_pull_request_reviews":null,"restrictions":null,"lock_branch":true}'
+          fi
+
+          echo "$PAYLOAD" | gh api \
             --method PUT \
             -H "Accept: application/vnd.github+json" \
             "/repos/$OWNER/$REPO/branches/$TARGET_ENC/protection" \
-            --input - << 'PAYLOAD'
-          {
-            "required_status_checks": null,
-            "enforce_admins": false,
-            "required_pull_request_reviews": null,
-            "restrictions": null,
-            "lock_branch": true
-          }
-          PAYLOAD
+            --input -
 
           echo "✅ Branch '$TARGET' is now locked."
 
