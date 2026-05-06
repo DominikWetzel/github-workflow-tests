@@ -25,7 +25,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       OWNER: ${{ github.repository_owner }}
-      REPO:  ${{ github.event.repository.name }}
+      REPO: ${{ github.event.repository.name }}
 
     steps:
       - name: Checkout DOMI-123 branch (has all workflow files)

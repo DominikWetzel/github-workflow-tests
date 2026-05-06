@@ -122,6 +122,7 @@ jobs:
 
       # -----------------------------------------------------------------------
       # Merge shadow branch into target branch
+      # GitHub API returns 201 (merge created) or 204 (already up to date).
       # -----------------------------------------------------------------------
       - name: Merge shadow branch into target
         run: |
@@ -129,22 +130,15 @@ jobs:
           SHADOW="${{ steps.shadow.outputs.shadow_branch }}"
           echo "🔀 Merging '$SHADOW' into '$TARGET'"
 
-          MERGE_RESULT=$(gh api \
+          gh api \
             --method POST \
             -H "Accept: application/vnd.github+json" \
             "/repos/$OWNER/$REPO/merges" \
             -f "base=$TARGET" \
             -f "head=$SHADOW" \
             -f "commit_message=chore: merge $SHADOW into $TARGET after release" \
-            2>&1) || true
-
-          if echo "$MERGE_RESULT" | grep -q '"sha"'; then
-            echo "✅ Shadow branch '$SHADOW' merged into '$TARGET'."
-          elif echo "$MERGE_RESULT" | grep -q '204\|No Content\|already merged'; then
-            echo "ℹ️  Shadow branch '$SHADOW' was already up to date with '$TARGET'."
-          else
-            echo "⚠️  Merge result: $MERGE_RESULT"
-          fi
+            && echo "✅ Shadow branch '$SHADOW' merged into '$TARGET' (or already up to date)." \
+            || echo "⚠️  Merge failed – manual intervention may be required."
 
       # -----------------------------------------------------------------------
       # Delete shadow branch

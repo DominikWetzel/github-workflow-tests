@@ -11,6 +11,12 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      release_duration_seconds:
+        description: 'Duration of the release step in seconds (default: 3600 = 60 min). Use a shorter value for testing.'
+        required: false
+        default: '3600'
+        type: string
 
 permissions:
   contents: write
@@ -61,8 +67,9 @@ jobs:
       - name: Perform release
         run: |
           echo "🚀 Release started for branch: ${{ github.ref_name }}"
-          echo "   Sleeping for 60 minutes to simulate the release process..."
-          sleep 3600
+          DURATION="${{ inputs.release_duration_seconds }}"
+          echo "   Sleeping for ${DURATION}s (simulating the release process)..."
+          sleep "$DURATION"
           echo "✅ Release complete."
 
   # ---------------------------------------------------------------------------
