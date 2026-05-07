@@ -6,6 +6,10 @@ on:
 jobs:
   pre-release:
     if: github.ref_name == 'master' || startsWith(github.ref_name, 'version/')
+    permissions:
+      contents: write
+      statuses: write
+      pull-requests: write
     uses: ./.github/workflows/pre-release.yml
     with:
       base-branch: ${{ github.ref_name }}
@@ -28,6 +32,10 @@ jobs:
   post-release:
     needs: release
     if: always()
+    permissions:
+      contents: write
+      statuses: write
+      pull-requests: write
     uses: ./.github/workflows/post-release.yml
     with:
       base-branch: ${{ github.ref_name }}
