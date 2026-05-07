@@ -22,8 +22,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Simulate release (5 min wait)
-        run: sleep 300
+      - name: Simulate release (0.5 min wait)
+        run: sleep 30
 
   post-release:
     needs: release
