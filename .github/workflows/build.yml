@@ -1,0 +1,18 @@
+# STUB: This is a dummy workflow for testing the pre/post-release lock mechanism.
+# In the real repo this runs the actual build + Cypress E2E tests.
+name: Build
+
+on:
+  workflow_call:
+    inputs:
+      cypress-test-all-browsers:
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Stub build (no-op)
+        run: echo "Build stub — no-op"

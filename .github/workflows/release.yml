@@ -3,10 +3,6 @@ name: Release
 on:
   workflow_dispatch:
 
-env:
-  docker_run: './scripts/ci/bin/docker-run.sh'
-  SSH_KEY: ${{ secrets.SSH_KEY }}
-
 jobs:
   pre-release:
     if: github.ref_name == 'master' || startsWith(github.ref_name, 'version/')
@@ -24,18 +20,10 @@ jobs:
 
   release:
     needs: build
-    runs-on: docker
-    env:
-      SSH_DEPLOY_KEY: ${{ secrets.SSH_DEPLOY_KEY }}
+    runs-on: ubuntu-latest
     steps:
-      - uses: dedalus-cis4u/with-standard-setup@v2.0.15
-        with:
-          git-checkout: 'all'
-      - name: create-image
-        run: scripts/ci/bin/run-step.sh create-image.sh
-      - name: run
-        run: |
-          $docker_run release.sh
+      - name: Simulate release (5 min wait)
+        run: sleep 300
 
   post-release:
     needs: release
