@@ -12,11 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      statuses: write
       pull-requests: write
     steps:
-      - name: Get base branch HEAD SHA
-        id: base-sha
+      - name: Create shadow branch
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -26,36 +24,14 @@ jobs:
               repo: context.repo.repo,
               ref: `heads/${{ inputs.base-branch }}`
             });
-            core.setOutput('sha', ref.data.object.sha);
-            console.log(`Base branch HEAD: ${ref.data.object.sha}`);
-
-      - name: Post pending status on base branch HEAD
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            await github.rest.repos.createCommitStatus({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha: '${{ steps.base-sha.outputs.sha }}',
-              state: 'pending',
-              context: 'release/lock',
-              description: 'Release in progress — merges blocked'
-            });
-            console.log('Posted pending status for release/lock');
-
-      - name: Create shadow branch
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
+            const sha = ref.data.object.sha;
             await github.rest.git.createRef({
               owner: context.repo.owner,
               repo: context.repo.repo,
               ref: `refs/heads/${{ inputs.base-branch }}-shadow`,
-              sha: '${{ steps.base-sha.outputs.sha }}'
+              sha
             });
-            console.log(`Created shadow branch: ${{ inputs.base-branch }}-shadow at ${{ steps.base-sha.outputs.sha }}`);
+            console.log(`Created shadow branch: ${{ inputs.base-branch }}-shadow at ${sha}`);
 
       - name: Redirect open PRs to shadow branch
         uses: actions/github-script@v7

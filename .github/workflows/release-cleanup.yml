@@ -1,0 +1,19 @@
+name: Release Cleanup
+
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types:
+      - completed
+
+jobs:
+  cleanup-shadow:
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/post-release.yml
+    with:
+      base-branch: ${{ github.event.workflow_run.head_branch }}
+    secrets: inherit
+
+

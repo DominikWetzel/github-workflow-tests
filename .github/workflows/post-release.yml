@@ -12,38 +12,39 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      statuses: write
       pull-requests: write
     steps:
-      - name: Get post-release base branch HEAD SHA
-        id: base-sha
+      - name: Check if shadow branch exists
+        id: shadow-check
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const ref = await github.rest.git.getRef({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              ref: `heads/${{ inputs.base-branch }}`
-            });
-            core.setOutput('sha', ref.data.object.sha);
-            console.log(`Post-release base HEAD: ${ref.data.object.sha}`);
+            try {
+              const ref = await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `heads/${{ inputs.base-branch }}-shadow`
+              });
+              core.setOutput('shadowBranchExistent', 'true');
+              core.setOutput('sha', ref.data.object.sha);
+              console.log('Shadow branch exists — proceeding with post-release cleanup');
+            } catch (err) {
+              if (err.status === 404) {
+                core.setOutput('shadowBranchExistent', 'false');
+                console.log('Shadow branch does not exist — nothing to clean up');
+              } else {
+                throw err;
+              }
+            }
 
       - name: Get shadow branch HEAD SHA
+        if: steps.shadow-check.outputs.shadowBranchExistent == 'true'
         id: shadow-sha
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const ref = await github.rest.git.getRef({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              ref: `heads/${{ inputs.base-branch }}-shadow`
-            });
-            core.setOutput('sha', ref.data.object.sha);
-            console.log(`Shadow HEAD: ${ref.data.object.sha}`);
+        run: echo "sha=${{ steps.shadow-check.outputs.sha }}" >> $GITHUB_OUTPUT
 
       - name: Redirect open PRs from shadow back to base
+        if: steps.shadow-check.outputs.shadowBranchExistent == 'true'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -65,22 +66,8 @@ jobs:
               console.log(`Redirected PR #${pr.number} "${pr.title}" back to ${{ inputs.base-branch }}`);
             }
 
-      - name: Post success status on post-release base HEAD
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            await github.rest.repos.createCommitStatus({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha: '${{ steps.base-sha.outputs.sha }}',
-              state: 'success',
-              context: 'release/lock',
-              description: 'Release complete — merges unblocked'
-            });
-            console.log('Posted success status for release/lock');
-
       - name: Fast-forward base branch to shadow HEAD
+        if: steps.shadow-check.outputs.shadowBranchExistent == 'true'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -108,7 +95,7 @@ jobs:
             }
 
       - name: Delete shadow branch
-        if: success()
+        if: steps.shadow-check.outputs.shadowBranchExistent == 'true' && success()
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
