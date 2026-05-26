@@ -61,8 +61,7 @@ REQUEST_BODY=$(echo "${PROTECTION}" | jq --argjson lock "${LOCK}" '{
       apps: ((.restrictions.apps // []) | map(.slug))
     } else null end
   )
-}')
-
+} | del(.. | nulls)')
 gh api \
   --method PUT \
   "repos/${OWNER}/${REPO}/branches/${BRANCH}/protection" \
