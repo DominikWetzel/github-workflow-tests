@@ -9,7 +9,7 @@ OWNER=$(gh repo view --json owner --jq '.owner.login')
 REPO=$(gh repo view --json name --jq '.name')
 
 PROTECTION=$(gh api "repos/${OWNER}/${REPO}/branches/${BRANCH}/protection" 2>&1) || {
-  if echo "${PROTECTION}" | jq -e '.status == 404' > /dev/null 2>&1; then
+  if echo "${PROTECTION}" | jq -e '.status == "404"' > /dev/null 2>&1; then
     echo "No branch protection configured — nothing to do"
     exit 0
   fi
