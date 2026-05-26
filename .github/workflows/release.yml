@@ -4,18 +4,20 @@ on:
   workflow_dispatch:
 
 jobs:
-  pre-release:
+  lock-branch:
     if: github.ref_name == 'master' || startsWith(github.ref_name, 'version/')
-    permissions:
-      contents: write
-      pull-requests: write
-    uses: ./.github/workflows/pre-release.yml
-    with:
-      base-branch: ${{ github.ref_name }}
-    secrets: inherit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lock base branch
+        env:
+          BRANCH: ${{ github.ref_name }}
+          LOCK: 'true'
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/ci/steps/set-branch-lock.sh
 
   build:
-    needs: pre-release
+    needs: lock-branch
     uses: ./.github/workflows/build.yml
     with:
       cypress-test-all-browsers: true
@@ -25,16 +27,12 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: Simulate release (1 min wait)
         run: sleep 60
-
-  post-release:
-    needs: release
-    if: always()
-    permissions:
-      contents: write
-      pull-requests: write
-    uses: ./.github/workflows/post-release.yml
-    with:
-      base-branch: ${{ github.ref_name }}
-    secrets: inherit
+      - name: Unlock base branch
+        env:
+          BRANCH: ${{ github.ref_name }}
+          LOCK: 'false'
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/ci/steps/set-branch-lock.sh

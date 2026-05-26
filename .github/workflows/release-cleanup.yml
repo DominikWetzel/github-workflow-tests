@@ -2,18 +2,19 @@ name: Release Cleanup
 
 on:
   workflow_run:
-    workflows: ["Release"]
+    workflows: ['Release']
     types:
       - completed
 
 jobs:
-  cleanup-shadow:
-    permissions:
-      contents: write
-      pull-requests: write
-    uses: ./.github/workflows/post-release.yml
-    with:
-      base-branch: ${{ github.event.workflow_run.head_branch }}
-    secrets: inherit
-
-
+  unlock-branch:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.head_branch == 'master' || startsWith(github.event.workflow_run.head_branch, 'version/')
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure base branch is unlocked (failsafe)
+        env:
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          LOCK: 'false'
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/ci/steps/set-branch-lock.sh
