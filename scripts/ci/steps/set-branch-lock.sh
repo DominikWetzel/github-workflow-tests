@@ -40,19 +40,22 @@ REQUEST_BODY=$(echo "${PROTECTION}" | jq --argjson lock "${LOCK}" '{
     } else null end
   ),
   required_pull_request_reviews: (
-    if .required_pull_request_reviews then {
-      dismiss_stale_reviews: .required_pull_request_reviews.dismiss_stale_reviews,
-      require_code_owner_reviews: .required_pull_request_reviews.require_code_owner_reviews,
-      required_approving_review_count: .required_pull_request_reviews.required_approving_review_count,
-      require_last_push_approval: .required_pull_request_reviews.require_last_push_approval,
-      dismissal_restrictions: (
+    if .required_pull_request_reviews then
+      {
+        dismiss_stale_reviews: .required_pull_request_reviews.dismiss_stale_reviews,
+        require_code_owner_reviews: .required_pull_request_reviews.require_code_owner_reviews,
+        required_approving_review_count: .required_pull_request_reviews.required_approving_review_count,
+        require_last_push_approval: .required_pull_request_reviews.require_last_push_approval
+      } + (
         if .required_pull_request_reviews.dismissal_restrictions then {
-          users: (.required_pull_request_reviews.dismissal_restrictions.users | map(.login)),
-          teams: (.required_pull_request_reviews.dismissal_restrictions.teams | map(.slug)),
-          apps: ((.required_pull_request_reviews.dismissal_restrictions.apps // []) | map(.slug))
-        } else null end
+          dismissal_restrictions: {
+            users: (.required_pull_request_reviews.dismissal_restrictions.users | map(.login)),
+            teams: (.required_pull_request_reviews.dismissal_restrictions.teams | map(.slug)),
+            apps: ((.required_pull_request_reviews.dismissal_restrictions.apps // []) | map(.slug))
+          }
+        } else {} end
       )
-    } else null end
+    else null end
   ),
   restrictions: (
     if .restrictions then {
@@ -61,7 +64,7 @@ REQUEST_BODY=$(echo "${PROTECTION}" | jq --argjson lock "${LOCK}" '{
       apps: ((.restrictions.apps // []) | map(.slug))
     } else null end
   )
-} | del(.. | nulls)')
+}')
 gh api \
   --method PUT \
   "repos/${OWNER}/${REPO}/branches/${BRANCH}/protection" \
