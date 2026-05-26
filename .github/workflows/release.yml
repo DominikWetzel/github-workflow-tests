@@ -7,6 +7,8 @@ jobs:
   lock-branch:
     if: github.ref_name == 'master' || startsWith(github.ref_name, 'version/')
     runs-on: ubuntu-latest
+    permissions:
+      administration: write
     steps:
       - uses: actions/checkout@v4
       - name: Lock base branch
@@ -26,6 +28,8 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      administration: write
     steps:
       - uses: actions/checkout@v4
       - name: Simulate release (1 min wait)
