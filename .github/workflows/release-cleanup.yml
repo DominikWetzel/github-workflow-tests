@@ -9,8 +9,6 @@ on:
 jobs:
   unlock-branch:
     runs-on: ubuntu-latest
-    permissions:
-      administration: write
     if: github.event.workflow_run.head_branch == 'master' || startsWith(github.event.workflow_run.head_branch, 'version/')
     steps:
       - uses: actions/checkout@v4
@@ -18,5 +16,5 @@ jobs:
         env:
           BRANCH: ${{ github.event.workflow_run.head_branch }}
           LOCK: 'false'
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TEST_WORKFLOW_ADMIN_TOKEN_3 }}
         run: ./scripts/ci/steps/set-branch-lock.sh

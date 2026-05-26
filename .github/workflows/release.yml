@@ -7,15 +7,13 @@ jobs:
   lock-branch:
     if: github.ref_name == 'master' || startsWith(github.ref_name, 'version/')
     runs-on: ubuntu-latest
-    permissions:
-      administration: write
     steps:
       - uses: actions/checkout@v4
       - name: Lock base branch
         env:
           BRANCH: ${{ github.ref_name }}
           LOCK: 'true'
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TEST_WORKFLOW_ADMIN_TOKEN_3 }}
         run: ./scripts/ci/steps/set-branch-lock.sh
 
   build:
@@ -28,8 +26,6 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
-    permissions:
-      administration: write
     steps:
       - uses: actions/checkout@v4
       - name: Simulate release (1 min wait)
@@ -38,5 +34,5 @@ jobs:
         env:
           BRANCH: ${{ github.ref_name }}
           LOCK: 'false'
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TEST_WORKFLOW_ADMIN_TOKEN_3 }}
         run: ./scripts/ci/steps/set-branch-lock.sh
